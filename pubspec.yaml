@@ -1,0 +1,44 @@
+name: unidrive
+description: "UniDrive - Premium student carpooling for the modern campus."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.7.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  mapbox_maps_flutter: ^2.5.0
+  latlong2: ^0.9.1
+  google_fonts: ^6.2.1
+  file_picker: ^8.0.7
+  flutter_animate: ^4.5.0
+  http: ^1.6.0
+  firebase_core: ^4.6.0
+  firebase_auth: ^6.3.0
+  cloud_firestore: ^6.2.0
+  image_picker: ^1.2.1
+  permission_handler: ^11.3.1
+  geolocator: ^13.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.1
+
+# ── App Icon Config (run: dart run flutter_launcher_icons) ─────────────────
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/images/app_icon.png"   # Replace with your 1024×1024 PNG
+  min_sdk_android: 21
+  adaptive_icon_background: "#0D1B2A"        # NavyDark — matches app theme
+  adaptive_icon_foreground: "assets/images/app_icon_fg.png"  # foreground layer (optional)
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
