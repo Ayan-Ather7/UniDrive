@@ -4,7 +4,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
 import '../services/database_service.dart';
-import '../services/auth_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DriverDashboardScreen
@@ -338,6 +337,7 @@ class DriverDashboardScreen extends StatelessWidget {
     );
     if (confirmed == true && context.mounted) {
       await db.closeRideOffer(rideId);
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Offer closed — ride is now in progress.'),
         backgroundColor: AppColors.blue,
@@ -371,6 +371,7 @@ class DriverDashboardScreen extends StatelessWidget {
     );
     if (confirmed == true && context.mounted) {
       await db.cancelRide(rideId);
+      if (!context.mounted) return;
       Navigator.pop(context); // go back to home
     }
   }

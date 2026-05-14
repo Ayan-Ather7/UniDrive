@@ -1,5 +1,4 @@
 import 'dart:ui';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -8,7 +7,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mbx;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:geolocator/geolocator.dart' as geo;
-import 'package:http/http.dart' as http;
 import '../theme/app_theme.dart';
 import '../widgets/unidrive_logo.dart';
 import '../services/auth_service.dart';
@@ -16,9 +14,7 @@ import '../services/database_service.dart';
 import 'search_filter_screen.dart';
 import 'offer_ride_sheet.dart';
 import '../main.dart';
-
-const _mapboxPublicToken =
-    'pk.eyJ1IjoiYXlhbi1hdGhlcjciLCJhIjoiY21vdW1oMG81MGNjdTJxczliYng0dHl1MCJ9.ordjfmdd2DXXpA04Sr_pKA';
+import '../core/constants.dart';
 
 
 
@@ -33,14 +29,10 @@ class _HomeScreenState extends State<HomeScreen> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   mbx.MapboxMap? _mapboxMap;
 
-  // Fixed-pin reverse geocode state
-  String _centerAddress = '';
-  bool   _geocoding     = false;
-
   @override
   void initState() {
     super.initState();
-    mbx.MapboxOptions.setAccessToken(_mapboxPublicToken);
+    mbx.MapboxOptions.setAccessToken(kMapboxPublicToken);
     _requestLocationPermission();
   }
 
@@ -67,42 +59,17 @@ class _HomeScreenState extends State<HomeScreen> {
         mbx.MapAnimationOptions(duration: 800),
       );
     } catch (_) {
-      // Permission not granted or location unavailable — silently ignore
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Enable location permission to center the map on you.'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 3),
+        ));
+      }
     }
   }
 
-  /// Called when the Mapbox camera stops moving.
-  /// Extracts center coords and reverse-geocodes them via Photon.
-  Future<void> _onCameraIdle() async {
-    final mapbox = _mapboxMap;
-    if (mapbox == null || _geocoding) return;
-    try {
-      final cam = await mapbox.getCameraState();
-      final center = cam.center;
-      if (center == null) return;
-      final lng = center.coordinates.lng;
-      final lat = center.coordinates.lat;
-      setState(() => _geocoding = true);
-      final uri = Uri.parse(
-          'https://photon.komoot.io/reverse?lon=$lng&lat=$lat&limit=1');
-      final res = await http.get(uri).timeout(const Duration(seconds: 5));
-      if (res.statusCode == 200) {
-        final data  = jsonDecode(res.body) as Map<String, dynamic>;
-        final feats = (data['features'] as List?) ?? [];
-        if (feats.isNotEmpty) {
-          final p = (feats.first as Map)['properties'] as Map<String, dynamic>;
-          final parts = [p['name'], p['street'], p['city']]
-              .where((e) => e != null && (e as String).isNotEmpty)
-              .join(', ');
-          if (mounted) setState(() => _centerAddress = parts);
-        }
-      }
-    } catch (_) {
-      // Reverse geocode failed — silently ignore
-    } finally {
-      if (mounted) setState(() => _geocoding = false);
-    }
-  }
+
 
   void _showFilter() {
     showModalBottomSheet(
@@ -165,64 +132,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   zoom: 14.5,
                 ));
               },
-              onCameraChangeListener: (_) => _onCameraIdle(),
               styleUri: isDark
                   ? mbx.MapboxStyles.DARK
                   : mbx.MapboxStyles.MAPBOX_STREETS,
             ).animate().fadeIn(duration: 800.ms),
-          ),
-
-          // ── Fixed center pin (reverse geocode anchor) ───────────────────
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (_centerAddress.isNotEmpty)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 6),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? AppColors.darkCard.withValues(alpha: 0.92)
-                            : Colors.white.withValues(alpha: 0.95),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.15),
-                            blurRadius: 8)],
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (_geocoding)
-                            const SizedBox(width: 12, height: 12,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 1.5, color: AppColors.blue))
-                          else
-                            const Icon(Icons.location_on_rounded,
-                                size: 13, color: AppColors.maroon),
-                          const SizedBox(width: 6),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 200),
-                            child: Text(
-                              _centerAddress,
-                              style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 12, fontWeight: FontWeight.w600),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  const Icon(Icons.location_pin,
-                      size: 44, color: AppColors.maroon),
-                  // Offset so the pin base sits at the exact center
-                  const SizedBox(height: 44),
-                ],
-              ),
-            ),
           ),
 
           // ── Top bar ──────────────────────────────────────────────────

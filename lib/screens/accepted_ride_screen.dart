@@ -6,9 +6,7 @@ import '../services/database_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
 import '../widgets/verified_badge.dart';
-
-const _mapboxPublicToken =
-    'pk.eyJ1IjoiYXlhbi1hdGhlcjciLCJhIjoiY21vdW1oMG81MGNjdTJxczliYng0dHl1MCJ9.ordjfmdd2DXXpA04Sr_pKA';
+import '../core/constants.dart';
 
 
 
@@ -219,7 +217,7 @@ class _AcceptedRideScreenState extends State<AcceptedRideScreen>
           // ── Mapbox full-screen map ─────────────────────────────────
           MapWidget(
             onMapCreated: (mapboxMap) {
-              MapboxOptions.setAccessToken(_mapboxPublicToken);
+              MapboxOptions.setAccessToken(kMapboxPublicToken);
               mapboxMap.compass.updateSettings(
                   CompassSettings(enabled: false));
               mapboxMap.scaleBar.updateSettings(

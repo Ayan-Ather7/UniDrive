@@ -84,7 +84,6 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
     try {
       final cam = await mapbox.getCameraState();
       final center = cam.center;
-      if (center == null) return;
       final lng = center.coordinates.lng;
       final lat = center.coordinates.lat;
       

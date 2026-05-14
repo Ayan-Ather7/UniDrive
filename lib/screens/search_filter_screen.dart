@@ -265,7 +265,30 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: widget.onFindRides,
+                  onPressed: () {
+                    final pickup = _pickupCtrl.text.trim();
+                    final dest   = _destCtrl.text.trim();
+                    if (pickup.isEmpty || dest.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            pickup.isEmpty
+                                ? 'Please enter a pickup location.'
+                                : 'Please enter a destination.',
+                            style: GoogleFonts.plusJakartaSans(
+                                fontWeight: FontWeight.w600),
+                          ),
+                          backgroundColor: AppColors.maroon,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                          margin: const EdgeInsets.all(16),
+                        ),
+                      );
+                      return;
+                    }
+                    widget.onFindRides();
+                  },
                   child: Text('Find Available Rides',
                       style: GoogleFonts.plusJakartaSans(
                           fontWeight: FontWeight.w800, fontSize: 15, letterSpacing: 0.5)),
