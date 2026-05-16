@@ -1,836 +1,727 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
-import '../models/ride_model.dart';
-import '../main.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../widgets/verified_badge.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ProfileScreen
+//
+// Displays: User Header · Vehicle Details · Payment Methods
+// Ride History has been moved to its own dedicated screen (ride_history_screen).
+// ─────────────────────────────────────────────────────────────────────────────
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  // Key used to trigger RefreshIndicator programmatically if needed
-  final _refreshKey = GlobalKey<RefreshIndicatorState>();
+  final _db = DatabaseService();
+  final _auth = AuthService();
 
-  // Cached ride list rebuilt on every refresh / snapshot update
-  List<RideModel> _rides = [];
-  bool _ridesLoaded = false;
+  // ── Vehicle edit controllers ───────────────────────────────────────────────
+  final _makeCtrl = TextEditingController();
+  final _modelCtrl = TextEditingController();
+  final _colorCtrl = TextEditingController();
+  final _plateCtrl = TextEditingController();
 
   @override
-  Widget build(BuildContext context) {
+  void dispose() {
+    _makeCtrl.dispose();
+    _modelCtrl.dispose();
+    _colorCtrl.dispose();
+    _plateCtrl.dispose();
+    super.dispose();
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  String _initials(String name) {
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    if (name.isNotEmpty) return name[0].toUpperCase();
+    return '?';
+  }
+
+  // ── Vehicle bottom sheet ──────────────────────────────────────────────────
+
+  void _showVehicleSheet(String uid, Map<String, dynamic>? existing) {
+    _makeCtrl.text = existing?['make'] ?? '';
+    _modelCtrl.text = existing?['model'] ?? '';
+    _colorCtrl.text = existing?['color'] ?? '';
+    _plateCtrl.text = existing?['licensePlate'] ?? '';
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final appState = UniDriveApp.of(context);
 
-    return Scaffold(
-      backgroundColor: isDark ? AppColors.darkBg : AppColors.lightBg,
-      body: RefreshIndicator(
-        key: _refreshKey,
-        color: AppColors.blue,
-        onRefresh: () async {
-          // Force a brief delay so the spinner is visible, then rebuild
-          await Future.delayed(const Duration(milliseconds: 600));
-          setState(() {});
-        },
-        child: NestedScrollView(
-        headerSliverBuilder: (context, _) => [
-          SliverAppBar(
-            expandedHeight: 230,
-            pinned: true,
-            backgroundColor: isDark ? AppColors.darkCard : Colors.white,
-            leading: const BackButton(color: Colors.white),
-            actions: [
-              IconButton(
-                icon: Icon(
-                    isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-                    color: Colors.white),
-                onPressed: () => appState?.toggleTheme(),
-              ),
-              const SizedBox(width: 8),
-            ],
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: isDark
-                        ? [AppColors.darkBg, AppColors.darkCard]
-                        : [AppColors.navy, const Color(0xFF1A52A8)],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                ),
-                child: SafeArea(
-                  child: StreamBuilder<DocumentSnapshot>(
-                    stream: AuthService().currentUid != null
-                        ? DatabaseService().streamUserData(
-                            AuthService().currentUid!)
-                        : null,
-                    builder: (context, snapshot) {
-                      String name = 'Loading...';
-                      bool isVerified = false;
-
-                      if (snapshot.hasData && snapshot.data!.exists) {
-                        final data =
-                            snapshot.data!.data() as Map<String, dynamic>;
-                        name = data['name'] ?? 'Student';
-                        isVerified = data['isVerified'] == true;
-                      } else if (snapshot.connectionState ==
-                          ConnectionState.waiting) {
-                        name = 'Loading...';
-                      }
-
-                      // Derive ride count and rating from the loaded list
-                      final rideCount = _ridesLoaded ? _rides.length : null;
-                      final avgRating = (_ridesLoaded && _rides.isNotEmpty)
-                          ? (_rides.fold(0.0, (s, r) => s + r.rating) /
-                              _rides.length)
-                          : null;
-
-                      return Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const SizedBox(height: 16),
-                          Container(
-                            width: 84,
-                            height: 84,
-                            decoration: BoxDecoration(
-                              color: AppColors.cyan.withValues(alpha: 0.15),
-                              shape: BoxShape.circle,
-                              border:
-                                  Border.all(color: AppColors.cyan, width: 2),
-                              boxShadow: [
-                                BoxShadow(
-                                  color:
-                                      AppColors.cyan.withValues(alpha: 0.2),
-                                  blurRadius: 20,
-                                  offset: const Offset(0, 8),
-                                )
-                              ],
-                            ),
-                            child: const Icon(Icons.person_rounded,
-                                size: 46, color: Colors.white),
-                          ).animate().scale(
-                              curve: Curves.easeOutBack, duration: 600.ms),
-                          const SizedBox(height: 12),
-                          Text(name,
-                                  style: GoogleFonts.plusJakartaSans(
-                                      color: Colors.white,
-                                      fontSize: 22,
-                                      letterSpacing: -0.5,
-                                      fontWeight: FontWeight.w800))
-                              .animate()
-                              .fadeIn(delay: 200.ms),
-                          const SizedBox(height: 4),
-                          // Verified badge — ONLY shown when isVerified = true
-                          if (isVerified)
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.verified_rounded,
-                                    color: AppColors.cyan, size: 15),
-                                const SizedBox(width: 5),
-                                Text('Verified Student',
-                                    style: GoogleFonts.plusJakartaSans(
-                                        color: Colors.white70,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600)),
-                              ],
-                            ).animate().fadeIn(delay: 300.ms),
-                          const SizedBox(height: 14),
-                          // Live stats from Firestore data
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              _QuickStat(
-                                value: rideCount != null
-                                    ? '$rideCount'
-                                    : '0',
-                                label: 'Rides',
-                              ),
-                              _QuickStat(
-                                value: avgRating != null
-                                    ? '${avgRating.toStringAsFixed(1)}★'
-                                    : 'N/A',
-                                label: 'Rating',
-                                valueCol:
-                                    avgRating != null ? Colors.amber : null,
-                              ),
-                            ],
-                          ).animate().fadeIn(delay: 400.ms).slideY(begin: 0.2),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-        body: ListView(
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(
+            24, 20, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Ride History ─────────────────────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
-              child: Text('RIDE HISTORY',
-                  style: GoogleFonts.plusJakartaSans(
-                      fontSize: 11, fontWeight: FontWeight.w800,
-                      color: AppColors.textMuted, letterSpacing: 1.5)),
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.darkBorder,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
             ),
-            StreamBuilder<QuerySnapshot>(
-              stream: DatabaseService().streamPastRides(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const Padding(
-                      padding: EdgeInsets.all(32),
-                      child: Center(child: CircularProgressIndicator()));
-                }
-                final rides = snapshot.data!.docs.map((doc) {
-                  final data = doc.data() as Map<String, dynamic>;
-                  return RideModel(
-                    id: doc.id,
-                    driverId: data['driverId'] ?? '',
-                    driverName: 'Driver ${doc.id.substring(0, 4)}',
-                    from: data['origin']?['address'] ?? 'Origin',
-                    to: data['destination']?['address'] ?? 'Destination',
-                    date: 'Today',
-                    time: data['departureTime'] != null
-                        ? '${(data['departureTime'] as Timestamp).toDate().hour}:${(data['departureTime'] as Timestamp).toDate().minute}'
-                        : 'Soon',
-                    fare: (data['currentFarePerPassenger'] ?? 0).toDouble(),
-                    status: data['status'] == 'Completed'
-                        ? RideStatus.completed
-                        : RideStatus.cancelled,
-                    rating: 5.0,
-                  );
-                }).toList();
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted && (_rides.length != rides.length || !_ridesLoaded)) {
-                    setState(() { _rides = rides; _ridesLoaded = true; });
+            const SizedBox(height: 20),
+            Text(
+              existing != null ? 'Edit Vehicle' : 'Add Vehicle',
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.w800, fontSize: 18,
+                color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 20),
+            _SheetField(ctrl: _makeCtrl, label: 'Make', hint: 'e.g. Toyota'),
+            const SizedBox(height: 12),
+            _SheetField(ctrl: _modelCtrl, label: 'Model', hint: 'e.g. Corolla'),
+            const SizedBox(height: 12),
+            _SheetField(ctrl: _colorCtrl, label: 'Color', hint: 'e.g. White'),
+            const SizedBox(height: 12),
+            _SheetField(ctrl: _plateCtrl, label: 'License Plate', hint: 'e.g. ABC-123'),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () async {
+                  if (_makeCtrl.text.trim().isEmpty ||
+                      _modelCtrl.text.trim().isEmpty) {
+                    return;
                   }
-                });
-                if (rides.isEmpty) {
+                  await _db.saveVehicleProfile(uid,
+                    make: _makeCtrl.text.trim(),
+                    model: _modelCtrl.text.trim(),
+                    color: _colorCtrl.text.trim(),
+                    licensePlate: _plateCtrl.text.trim(),
+                  );
+                  if (ctx.mounted) Navigator.pop(ctx);
+                },
+                child: const Text('Save Vehicle'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Payment method bottom sheet ───────────────────────────────────────────
+
+  void _showAddPaymentSheet(String uid) {
+    String selectedType = 'Cash';
+    final last4Ctrl = TextEditingController();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+              24, 20, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.darkBorder,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Add Payment Method',
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w800, fontSize: 18,
+                  color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Type selector
+              Row(
+                children: ['Cash', 'Card'].map((type) {
+                  final selected = selectedType == type;
                   return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 32),
-                    child: Center(
-                      child: Column(
-                        children: [
-                          Icon(Icons.directions_car_outlined, size: 64,
-                              color: AppColors.textMuted.withValues(alpha: 0.2)),
-                          const SizedBox(height: 12),
-                          Text('No rides yet', style: GoogleFonts.plusJakartaSans(
-                              color: AppColors.textMuted, fontWeight: FontWeight.w600)),
-                        ],
+                    padding: const EdgeInsets.only(right: 10),
+                    child: ChoiceChip(
+                      label: Text(type),
+                      selected: selected,
+                      onSelected: (_) => setSheet(() => selectedType = type),
+                      selectedColor: AppColors.blue,
+                      labelStyle: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w700,
+                        color: selected ? Colors.white : AppColors.textMuted,
                       ),
                     ),
                   );
-                }
-                return Column(
-                  children: rides.asMap().entries.map((e) =>
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                      child: _RideCard(ride: e.value, isDark: isDark)
-                          .animate().fadeIn(delay: Duration(milliseconds: 120 * e.key)).slideY(begin: 0.1),
-                    )
-                  ).toList(),
-                );
-              },
-            ),
-
-            // ── Vehicle Details ────────────────────────────────────────────────────────────
-            if (AuthService().currentUid != null)
-              _VehicleSection(uid: AuthService().currentUid!, isDark: isDark),
-
-            // ── Payment Methods ──────────────────────────────────────────────────────────
-            if (AuthService().currentUid != null)
-              _PaymentSection(uid: AuthService().currentUid!, isDark: isDark),
-
-            const SizedBox(height: 32),
-          ],
+                }).toList(),
+              ),
+              if (selectedType == 'Card') ...[
+                const SizedBox(height: 14),
+                _SheetField(
+                  ctrl: last4Ctrl,
+                  label: 'Last 4 digits',
+                  hint: '1234',
+                  keyboardType: TextInputType.number,
+                  maxLength: 4,
+                ),
+              ],
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    final Map<String, dynamic> method = {'type': selectedType};
+                    if (selectedType == 'Card') {
+                      if (last4Ctrl.text.trim().length != 4) return;
+                      method['last4'] = last4Ctrl.text.trim();
+                      method['label'] = '•••• ${last4Ctrl.text.trim()}';
+                    } else {
+                      method['label'] = 'Cash';
+                    }
+                    await _db.savePaymentMethod(uid, method);
+                    last4Ctrl.dispose();
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  },
+                  child: const Text('Add Method'),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
-}
 
-class _QuickStat extends StatelessWidget {
-  final String value, label;
-  final Color? valueCol;
-  const _QuickStat({required this.value, required this.label, this.valueCol});
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      child: Column(
-        children: [
-          Text(value,
-              style: GoogleFonts.plusJakartaSans(
-                  color: valueCol ?? Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18)),
-          const SizedBox(height: 2),
-          Text(label,
-              style: GoogleFonts.plusJakartaSans(
-                  color: Colors.white60,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
-  }
-}
+  // ── Logout ────────────────────────────────────────────────────────────────
 
-class _RideList extends StatefulWidget {
-  final List<RideModel> rides;
-  final bool isDark;
-  const _RideList({required this.rides, required this.isDark});
-
-  @override
-  State<_RideList> createState() => _RideListState();
-}
-
-class _RideListState extends State<_RideList>
-    with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    final rides = widget.rides;
-    final isDark = widget.isDark;
-    if (rides.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.directions_car_outlined,
-                size: 80,
-                color: AppColors.textMuted.withValues(alpha: 0.2)),
-            const SizedBox(height: 16),
-            Text('No rides yet',
-                style: GoogleFonts.plusJakartaSans(
-                    color: AppColors.textMuted, fontWeight: FontWeight.w600)),
-          ],
-        ),
-      );
+  Future<void> _logout() async {
+    await _auth.logout();
+    if (mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil('/welcome', (_) => false);
     }
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-      itemCount: rides.length,
-      itemBuilder: (_, i) => RepaintBoundary(
-        child: _RideCard(ride: rides[i], isDark: isDark)
-            .animate()
-            .fadeIn(delay: Duration(milliseconds: 150 * i))
-            .slideY(begin: 0.1),
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = _auth.currentUid;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (uid == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    return Scaffold(
+      backgroundColor: isDark ? AppColors.darkBg : AppColors.lightBg,
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: _db.streamUserData(uid),
+        builder: (context, userSnap) {
+          final userData =
+              userSnap.hasData && userSnap.data!.exists
+                  ? userSnap.data!.data() as Map<String, dynamic>
+                  : <String, dynamic>{};
+
+          final name = userData['name'] as String? ?? 'UniDriver';
+          final email = userData['email'] as String? ?? '';
+          final isVerified = userData['isVerified'] as bool? ?? false;
+          final ratingDriver =
+              (userData['ratingAsDriver'] as num?)?.toDouble() ?? 5.0;
+          final ratingPassenger =
+              (userData['ratingAsPassenger'] as num?)?.toDouble() ?? 5.0;
+          final vehicle = userData['vehicle'] as Map<String, dynamic>?;
+
+          return CustomScrollView(
+            slivers: [
+              // ── App Bar ──────────────────────────────────────────────────
+              SliverAppBar(
+                expandedHeight: 200,
+                pinned: true,
+                backgroundColor:
+                    isDark ? AppColors.darkCard : AppColors.navy,
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                      color: Colors.white, size: 20),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.logout_rounded,
+                        color: Colors.white70, size: 20),
+                    tooltip: 'Sign out',
+                    onPressed: _logout,
+                  ),
+                ],
+                flexibleSpace: FlexibleSpaceBar(
+                  background: Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [AppColors.navy, AppColors.maroon],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                    child: SafeArea(
+                      child: Padding(
+                        padding:
+                            const EdgeInsets.fromLTRB(24, 16, 24, 16),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Avatar row
+                            Row(
+                              children: [
+                                Container(
+                                  width: 60,
+                                  height: 60,
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [AppColors.blue, AppColors.cyan],
+                                    ),
+                                    borderRadius:
+                                        BorderRadius.circular(18),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: AppColors.blue
+                                            .withValues(alpha: 0.4),
+                                        blurRadius: 12,
+                                        offset: const Offset(0, 4),
+                                      )
+                                    ],
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      _initials(name),
+                                      style: GoogleFonts.plusJakartaSans(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 22,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              name,
+                                              maxLines: 1,
+                                              overflow:
+                                                  TextOverflow.ellipsis,
+                                              style:
+                                                  GoogleFonts.plusJakartaSans(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 18,
+                                              ),
+                                            ),
+                                          ),
+                                          if (isVerified) ...[
+                                            const SizedBox(width: 6),
+                                            const VerifiedBadge(),
+                                          ],
+                                        ],
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        email,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style:
+                                            GoogleFonts.plusJakartaSans(
+                                          color: Colors.white70,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            // Rating chips
+                            Row(
+                              children: [
+                                _RatingChip(
+                                  icon: Icons.directions_car_rounded,
+                                  label:
+                                      '${ratingDriver.toStringAsFixed(1)} Driver',
+                                  color: AppColors.orange,
+                                ),
+                                const SizedBox(width: 8),
+                                _RatingChip(
+                                  icon: Icons.person_rounded,
+                                  label:
+                                      '${ratingPassenger.toStringAsFixed(1)} Rider',
+                                  color: AppColors.cyan,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // ── Body ─────────────────────────────────────────────────────
+              SliverPadding(
+                padding:
+                    const EdgeInsets.fromLTRB(20, 24, 20, 40),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    // ── Vehicle Details ──────────────────────────────────
+                    _SectionCard(
+                      isDark: isDark,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Section header — overflow-safe Row
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'VEHICLE DETAILS',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1.2,
+                                    color: AppColors.textMuted,
+                                  ),
+                                ),
+                              ),
+                              TextButton.icon(
+                                onPressed: () =>
+                                    _showVehicleSheet(uid, vehicle),
+                                icon: Icon(
+                                  vehicle != null
+                                      ? Icons.edit_rounded
+                                      : Icons.add_rounded,
+                                  size: 15,
+                                ),
+                                label: Text(
+                                  vehicle != null ? 'Edit' : 'Add Vehicle',
+                                ),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: AppColors.blue,
+                                  textStyle: GoogleFonts.plusJakartaSans(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: Size.zero,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          if (vehicle == null)
+                            _EmptyState(
+                              icon: Icons.directions_car_outlined,
+                              message: 'No vehicle added yet',
+                              subtitle:
+                                  'Add your vehicle to start offering rides.',
+                            )
+                          else ...[
+                            _VehicleRow(
+                                icon: Icons.directions_car_filled_rounded,
+                                label: 'Make & Model',
+                                value:
+                                    '${vehicle['make']} ${vehicle['model']}'),
+                            _VehicleRow(
+                                icon: Icons.palette_rounded,
+                                label: 'Color',
+                                value:
+                                    vehicle['color'] ?? '—'),
+                            _VehicleRow(
+                                icon: Icons.pin_rounded,
+                                label: 'Plate',
+                                value:
+                                    vehicle['licensePlate'] ?? '—'),
+                          ],
+                        ],
+                      ),
+                    )
+                        .animate()
+                        .fadeIn(delay: 80.ms)
+                        .slideY(begin: 0.06),
+
+                    const SizedBox(height: 16),
+
+                    // ── Payment Methods ──────────────────────────────────
+                    StreamBuilder<QuerySnapshot>(
+                      stream: _db.streamPaymentMethods(uid),
+                      builder: (context, paySnap) {
+                        final methods = paySnap.hasData
+                            ? paySnap.data!.docs
+                            : <QueryDocumentSnapshot>[];
+
+                        return _SectionCard(
+                          isDark: isDark,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // ── OVERFLOW FIX: Expanded on title ────────
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'PAYMENT METHODS',
+                                      style: GoogleFonts.plusJakartaSans(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 1.2,
+                                        color: AppColors.textMuted,
+                                      ),
+                                    ),
+                                  ),
+                                  TextButton.icon(
+                                    onPressed: () =>
+                                        _showAddPaymentSheet(uid),
+                                    icon: const Icon(Icons.add_rounded,
+                                        size: 15),
+                                    label: const Text('Add Card'),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: AppColors.blue,
+                                      textStyle:
+                                          GoogleFonts.plusJakartaSans(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      minimumSize: Size.zero,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              if (methods.isEmpty)
+                                _EmptyState(
+                                  icon: Icons.credit_card_rounded,
+                                  message: 'No payment methods',
+                                  subtitle:
+                                      'Add Cash or a Card to pay for rides.',
+                                )
+                              else
+                                ...methods.map((doc) {
+                                  final d =
+                                      doc.data() as Map<String, dynamic>;
+                                  final isCard =
+                                      d['type'] == 'Card';
+                                  return _PaymentTile(
+                                    isDark: isDark,
+                                    icon: isCard
+                                        ? Icons.credit_card_rounded
+                                        : Icons.payments_rounded,
+                                    label: d['label'] as String? ??
+                                        d['type'] as String? ??
+                                        'Method',
+                                    color: isCard
+                                        ? AppColors.violet
+                                        : AppColors.success,
+                                    onDelete: () async {
+                                      await _db.deletePaymentMethod(
+                                          uid, doc.id);
+                                    },
+                                  );
+                                }),
+                            ],
+                          ),
+                        )
+                            .animate()
+                            .fadeIn(delay: 140.ms)
+                            .slideY(begin: 0.06);
+                      },
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // ── Ride History shortcut ────────────────────────────
+                    OutlinedButton.icon(
+                      onPressed: () =>
+                          Navigator.pushNamed(context, '/ride-history'),
+                      icon: const Icon(Icons.history_rounded, size: 18),
+                      label: const Text('View Ride History'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: BorderSide(
+                            color: isDark
+                                ? AppColors.darkBorder
+                                : const Color(0xFFE5E7EB)),
+                        foregroundColor: AppColors.textMuted,
+                      ),
+                    )
+                        .animate()
+                        .fadeIn(delay: 200.ms),
+                  ]),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-class _RideCard extends StatelessWidget {
-  final RideModel ride;
+// ─────────────────────────────────────────────────────────────────────────────
+// Private sub-widgets
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SectionCard extends StatelessWidget {
+  final Widget child;
   final bool isDark;
-  const _RideCard({required this.ride, required this.isDark});
-
-  Color get _statusColor => switch (ride.status) {
-        RideStatus.upcoming => AppColors.blue,
-        RideStatus.active => AppColors.success,
-        RideStatus.completed => AppColors.textMuted,
-        RideStatus.cancelled => AppColors.maroonLight,
-      };
-
-  String get _statusLabel => switch (ride.status) {
-        RideStatus.upcoming => 'Scheduled',
-        RideStatus.active => 'Active',
-        RideStatus.completed => 'Completed',
-        RideStatus.cancelled => 'Cancelled',
-      };
+  const _SectionCard({required this.child, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkCard : Colors.white,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.05)
-                : const Color(0xFFE5E7EB)),
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.05)
+              : const Color(0xFFE5E7EB),
+        ),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 12,
-              offset: const Offset(0, 4))
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: AppColors.blue.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(Icons.directions_car_filled_rounded,
-                    color: AppColors.blue, size: 24),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(ride.driverName,
-                        style: GoogleFonts.plusJakartaSans(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
-                          color: isDark
-                              ? AppColors.textPrimaryDark
-                              : AppColors.textPrimary,
-                        )),
-                    const SizedBox(height: 2),
-                    Text('${ride.date} · ${ride.time}',
-                        style: GoogleFonts.plusJakartaSans(
-                            fontSize: 12,
-                            color: AppColors.textMuted,
-                            fontWeight: FontWeight.w600)),
-                  ],
-                ),
-              ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: _statusColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(_statusLabel.toUpperCase(),
-                    style: GoogleFonts.plusJakartaSans(
-                        fontSize: 10,
-                        letterSpacing: 1,
-                        color: _statusColor,
-                        fontWeight: FontWeight.w800)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          // Route
-          Row(
-            children: [
-              Column(
-                children: [
-                  Container(
-                      width: 10,
-                      height: 10,
-                      decoration: const BoxDecoration(
-                          color: AppColors.success, shape: BoxShape.circle)),
-                  Container(
-                      width: 2, height: 28, color: AppColors.darkBorder),
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                        color: AppColors.maroon,
-                        borderRadius: BorderRadius.circular(3)),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(ride.from,
-                        style: GoogleFonts.plusJakartaSans(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: isDark
-                                ? AppColors.textPrimaryDark
-                                : AppColors.textPrimary)),
-                    const SizedBox(height: 16),
-                    Text(ride.to,
-                        style: GoogleFonts.plusJakartaSans(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: isDark
-                                ? AppColors.textPrimaryDark
-                                : AppColors.textPrimary)),
-                  ],
-                ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text('PKR ${ride.fare.toStringAsFixed(0)}',
-                      style: GoogleFonts.plusJakartaSans(
-                          fontSize: 16,
-                          color: AppColors.orange,
-                          fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 4),
-                  if (ride.rating > 0)
-                    Row(
-                      children: [
-                        const Icon(Icons.star_rounded,
-                            size: 14, color: Colors.amber),
-                        const SizedBox(width: 4),
-                        Text(ride.rating.toStringAsFixed(1),
-                            style: GoogleFonts.plusJakartaSans(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.textMuted)),
-                      ],
-                    ),
-                ],
-              ),
-            ],
+            color: Colors.black.withValues(alpha: 0.07),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
+      child: child,
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Vehicle Details Section
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _VehicleSection extends StatefulWidget {
-  final String uid;
-  final bool isDark;
-  const _VehicleSection({required this.uid, required this.isDark});
-
-  @override
-  State<_VehicleSection> createState() => _VehicleSectionState();
-}
-
-class _VehicleSectionState extends State<_VehicleSection> {
-  final _makeCtrl   = TextEditingController();
-  final _modelCtrl  = TextEditingController();
-  final _colorCtrl  = TextEditingController();
-  final _plateCtrl  = TextEditingController();
-  bool _saving = false;
-  bool _editing = false;
-
-  @override
-  void dispose() {
-    _makeCtrl.dispose(); _modelCtrl.dispose();
-    _colorCtrl.dispose(); _plateCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    setState(() => _saving = true);
-    try {
-      await DatabaseService().saveVehicleProfile(widget.uid,
-        make: _makeCtrl.text.trim(),
-        model: _modelCtrl.text.trim(),
-        color: _colorCtrl.text.trim(),
-        licensePlate: _plateCtrl.text.trim(),
-      );
-      if (mounted) setState(() => _editing = false);
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
+class _RatingChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  const _RatingChip(
+      {required this.icon, required this.label, required this.color});
 
   @override
   Widget build(BuildContext context) {
-    final isDark   = widget.isDark;
-    final cardBg   = isDark ? AppColors.darkCard : Colors.white;
-    final textColor = isDark ? AppColors.textPrimaryDark : AppColors.textPrimary;
-    final fieldFill = isDark ? AppColors.darkSurface : AppColors.bgGrey;
-
-    return StreamBuilder<DocumentSnapshot>(
-      stream: DatabaseService().streamVehicleProfile(widget.uid),
-      builder: (context, snap) {
-        final data = snap.hasData && snap.data!.exists
-            ? snap.data!.data() as Map<String, dynamic>
-            : <String, dynamic>{};
-        final v = data['vehicle'] as Map<String, dynamic>?;
-
-        if (!_editing && v != null) {
-          _makeCtrl.text  = v['make']  ?? '';
-          _modelCtrl.text = v['model'] ?? '';
-          _colorCtrl.text = v['color'] ?? '';
-          _plateCtrl.text = v['licensePlate'] ?? '';
-        }
-
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: cardBg,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: isDark
-                  ? Colors.white.withValues(alpha: 0.06)
-                  : const Color(0xFFE5E7EB)),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 12, offset: const Offset(0, 4))],
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: GoogleFonts.plusJakartaSans(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 36, height: 36,
-                      decoration: BoxDecoration(
-                        color: AppColors.blue.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.directions_car_rounded,
-                          color: AppColors.blue, size: 18),
-                    ),
-                    const SizedBox(width: 12),
-                    Text('VEHICLE DETAILS',
-                        style: GoogleFonts.plusJakartaSans(
-                            fontSize: 11, fontWeight: FontWeight.w800,
-                            color: AppColors.textMuted, letterSpacing: 1.5)),
-                    const Spacer(),
-                    TextButton(
-                      onPressed: () => setState(() => _editing = !_editing),
-                      child: Text(_editing ? 'Cancel' : (v == null ? 'Add' : 'Edit'),
-                          style: GoogleFonts.plusJakartaSans(
-                              color: AppColors.blue, fontWeight: FontWeight.w700)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                if (!_editing && v == null)
-                  Center(
-                    child: Text('No vehicle added yet.',
-                        style: GoogleFonts.plusJakartaSans(
-                            color: AppColors.textMuted, fontSize: 13)),
-                  )
-                else if (!_editing && v != null)
-                  // Read-only display
-                  Column(
-                    children: [
-                      _VehicleRow(label: 'Make',    value: v['make']  ?? '—', isDark: isDark),
-                      _VehicleRow(label: 'Model',   value: v['model'] ?? '—', isDark: isDark),
-                      _VehicleRow(label: 'Color',   value: v['color'] ?? '—', isDark: isDark),
-                      _VehicleRow(label: 'Plate',   value: v['licensePlate'] ?? '—', isDark: isDark),
-                    ],
-                  )
-                else
-                  // Edit form
-                  Column(
-                    children: [
-                      _VehicleField(ctrl: _makeCtrl,  label: 'Car Make (e.g. Honda)',   fill: fieldFill, textColor: textColor),
-                      const SizedBox(height: 10),
-                      _VehicleField(ctrl: _modelCtrl, label: 'Car Model (e.g. Civic)',  fill: fieldFill, textColor: textColor),
-                      const SizedBox(height: 10),
-                      _VehicleField(ctrl: _colorCtrl, label: 'Color (e.g. Silver)',     fill: fieldFill, textColor: textColor),
-                      const SizedBox(height: 10),
-                      _VehicleField(ctrl: _plateCtrl, label: 'License Plate',           fill: fieldFill, textColor: textColor,
-                          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9\-]'))]),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity, height: 48,
-                        child: ElevatedButton(
-                          onPressed: _saving ? null : _save,
-                          child: _saving
-                              ? const SizedBox(width: 18, height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                              : Text('Save Vehicle', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800)),
-                        ),
-                      ),
-                    ],
-                  ),
-              ],
-            ),
-          ).animate().fadeIn(delay: 100.ms).slideY(begin: 0.1),
-        );
-      },
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _VehicleRow extends StatelessWidget {
-  final String label, value;
-  final bool isDark;
-  const _VehicleRow({required this.label, required this.value, required this.isDark});
+  final IconData icon;
+  final String label;
+  final String value;
+  const _VehicleRow(
+      {required this.icon, required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
-          SizedBox(
-            width: 56,
-            child: Text(label, style: GoogleFonts.plusJakartaSans(
-                fontSize: 12, color: AppColors.textMuted, fontWeight: FontWeight.w600)),
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: AppColors.blue.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 18, color: AppColors.blue),
           ),
           const SizedBox(width: 12),
-          Text(value, style: GoogleFonts.plusJakartaSans(
-              fontSize: 13, fontWeight: FontWeight.w700,
-              color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimary)),
-        ],
-      ),
-    );
-  }
-}
-
-class _VehicleField extends StatelessWidget {
-  final TextEditingController ctrl;
-  final String label;
-  final Color fill, textColor;
-  final List<TextInputFormatter>? inputFormatters;
-  const _VehicleField({required this.ctrl, required this.label,
-      required this.fill, required this.textColor, this.inputFormatters});
-
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      controller: ctrl,
-      inputFormatters: inputFormatters,
-      style: TextStyle(color: textColor, fontWeight: FontWeight.w600, fontSize: 14),
-      decoration: InputDecoration(
-        hintText: label,
-        filled: true, fillColor: fill,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Payment Methods Section
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _PaymentSection extends StatelessWidget {
-  final String uid;
-  final bool isDark;
-  const _PaymentSection({required this.uid, required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    final cardBg = isDark ? AppColors.darkCard : Colors.white;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: cardBg,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : const Color(0xFFE5E7EB)),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06),
-              blurRadius: 12, offset: const Offset(0, 4))],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 36, height: 36,
-                  decoration: BoxDecoration(
-                    color: AppColors.orange.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.payment_rounded,
-                      color: AppColors.orange, size: 18),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 11,
+                  color: AppColors.textMuted,
+                  fontWeight: FontWeight.w600,
                 ),
-                const SizedBox(width: 12),
-                Text('PAYMENT METHODS',
-                    style: GoogleFonts.plusJakartaSans(
-                        fontSize: 11, fontWeight: FontWeight.w800,
-                        color: AppColors.textMuted, letterSpacing: 1.5)),
-                const Spacer(),
-                TextButton(
-                  onPressed: () => _showAddCard(context),
-                  child: Text('+ Add Card',
-                      style: GoogleFonts.plusJakartaSans(
-                          color: AppColors.blue, fontWeight: FontWeight.w700)),
+              ),
+              Text(
+                value,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: isDark
+                      ? AppColors.textPrimaryDark
+                      : AppColors.textPrimary,
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Cash — always shown as default
-            _PaymentTile(
-              icon: Icons.money_rounded, label: 'Cash',
-              sublabel: 'Default payment method', color: AppColors.success, isDark: isDark),
-
-            // Saved cards from Firestore
-            StreamBuilder<QuerySnapshot>(
-              stream: DatabaseService().streamPaymentMethods(uid),
-              builder: (context, snap) {
-                if (!snap.hasData || snap.data!.docs.isEmpty) {
-                  return const SizedBox.shrink();
-                }
-                return Column(
-                  children: snap.data!.docs.map((doc) {
-                    final d = doc.data() as Map<String, dynamic>;
-                    final last4 = d['last4'] as String? ?? '••••';
-                    final brand = d['brand'] as String? ?? 'Card';
-                    return _PaymentTile(
-                      icon: Icons.credit_card_rounded,
-                      label: '$brand •••• $last4',
-                      sublabel: 'Expires ${d['expiry'] ?? '—'}',
-                      color: AppColors.blue, isDark: isDark,
-                    );
-                  }).toList(),
-                );
-              },
-            ),
-          ],
-        ),
-      ).animate().fadeIn(delay: 140.ms).slideY(begin: 0.1),
-    );
-  }
-
-  Future<void> _showAddCard(BuildContext context) async {
-    final brandCtrl  = TextEditingController();
-    final last4Ctrl  = TextEditingController();
-    final expiryCtrl = TextEditingController();
-    await showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Add Card', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: brandCtrl, decoration: const InputDecoration(labelText: 'Card Brand (Visa / Mastercard)')),
-            TextField(controller: last4Ctrl, keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(4)],
-                decoration: const InputDecoration(labelText: 'Last 4 digits')),
-            TextField(controller: expiryCtrl, decoration: const InputDecoration(labelText: 'Expiry (MM/YY)')),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              if (brandCtrl.text.isNotEmpty && last4Ctrl.text.length == 4) {
-                await DatabaseService().savePaymentMethod(uid, {
-                  'brand': brandCtrl.text.trim(),
-                  'last4': last4Ctrl.text.trim(),
-                  'expiry': expiryCtrl.text.trim(),
-                  'type': 'card',
-                });
-                if (context.mounted) Navigator.pop(context);
-              }
-            },
-            child: const Text('Save'),
+              ),
+            ],
           ),
         ],
       ),
@@ -840,41 +731,138 @@ class _PaymentSection extends StatelessWidget {
 
 class _PaymentTile extends StatelessWidget {
   final IconData icon;
-  final String label, sublabel;
+  final String label;
   final Color color;
   final bool isDark;
-  const _PaymentTile({required this.icon, required this.label,
-      required this.sublabel, required this.color, required this.isDark});
+  final VoidCallback onDelete;
+  const _PaymentTile({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.isDark,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: isDark
+            ? AppColors.darkSurface.withValues(alpha: 0.5)
+            : AppColors.bgGrey,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 18, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              label,
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                color: isDark
+                    ? AppColors.textPrimaryDark
+                    : AppColors.textPrimary,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: Icon(Icons.delete_outline_rounded,
+                size: 18, color: AppColors.maroonLight),
+            onPressed: onDelete,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  final IconData icon;
+  final String message;
+  final String subtitle;
+  const _EmptyState(
+      {required this.icon,
+      required this.message,
+      required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Container(
-            width: 40, height: 40,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color, size: 20),
-          ),
+          Icon(icon,
+              size: 36, color: AppColors.textMuted.withValues(alpha: 0.4)),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: GoogleFonts.plusJakartaSans(
-                    fontSize: 14, fontWeight: FontWeight.w700,
-                    color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimary)),
-                Text(sublabel, style: GoogleFonts.plusJakartaSans(
-                    fontSize: 11, color: AppColors.textMuted, fontWeight: FontWeight.w500)),
+                Text(
+                  message,
+                  style: GoogleFonts.plusJakartaSans(
+                    color: AppColors.textMuted,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: GoogleFonts.plusJakartaSans(
+                    color: AppColors.textMuted,
+                    fontWeight: FontWeight.w500,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
               ],
             ),
           ),
-          const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 18),
         ],
+      ),
+    );
+  }
+}
+
+class _SheetField extends StatelessWidget {
+  final TextEditingController ctrl;
+  final String label;
+  final String hint;
+  final TextInputType keyboardType;
+  final int? maxLength;
+  const _SheetField({
+    required this.ctrl,
+    required this.label,
+    required this.hint,
+    this.keyboardType = TextInputType.text,
+    this.maxLength,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: ctrl,
+      keyboardType: keyboardType,
+      maxLength: maxLength,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        counterText: '',
       ),
     );
   }

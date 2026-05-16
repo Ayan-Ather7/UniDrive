@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/ride_history_entry.dart';
 
 class DatabaseService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -41,10 +43,103 @@ class DatabaseService {
     return q.snapshots();
   }
 
-  Stream<QuerySnapshot> streamPastRides() {
-    return _firestore.collection('rides')
+  /// Streams rides the [uid] user drove that are completed or cancelled.
+  Stream<QuerySnapshot> streamPastRides(String uid) {
+    return _firestore
+        .collection('rides')
+        .where('driverId', isEqualTo: uid)
         .where('status', whereIn: ['Completed', 'Cancelled'])
         .snapshots();
+  }
+
+  // ── Unified ride history (Option C: driver + passenger) ───────────────────
+
+  /// Returns a merged, date-sorted stream of every ride the [uid] user was
+  /// involved in — either as the driver or as a confirmed passenger.
+  ///
+  /// Combines two Firestore queries:
+  ///   1. `rides` where `driverId == uid`  (driver history)
+  ///   2. `bookings` where `passengerId == uid`, resolved to their ride docs
+  ///      (passenger history)
+  ///
+  /// Uses a [StreamController.broadcast] so the stream can be re-listened.
+  /// Subscriptions are cancelled when the stream is cancelled.
+  Stream<List<RideHistoryEntry>> streamUnifiedRideHistory(String uid) {
+    final controller = StreamController<List<RideHistoryEntry>>.broadcast();
+
+    List<RideHistoryEntry> driverEntries = [];
+    List<RideHistoryEntry> passengerEntries = [];
+    bool disposed = false;
+
+    void emit() {
+      if (disposed || controller.isClosed) return;
+      final combined = [...driverEntries, ...passengerEntries]
+        ..sort((a, b) => b.departureTime.compareTo(a.departureTime));
+      controller.add(combined);
+    }
+
+    // ── Stream 1: rides the user DROVE ───────────────────────────────────────
+    final driverSub = _firestore
+        .collection('rides')
+        .where('driverId', isEqualTo: uid)
+        .where('status', whereIn: ['Completed', 'Cancelled'])
+        .snapshots()
+        .listen(
+      (snap) {
+        driverEntries = snap.docs
+            .map((doc) =>
+                RideHistoryEntry.fromDriverRide(doc.id, doc.data()))
+            .whereType<RideHistoryEntry>()
+            .toList();
+        emit();
+      },
+      onError: (_) => emit(),
+    );
+
+    // ── Stream 2: rides the user TOOK as passenger (via bookings) ────────────
+    final passengerSub = _firestore
+        .collection('bookings')
+        .where('passengerId', isEqualTo: uid)
+        .where('status', whereIn: ['Completed', 'Cancelled'])
+        .snapshots()
+        .listen(
+      (snap) async {
+        if (disposed) return;
+        final entries = <RideHistoryEntry>[];
+        for (final bookingDoc in snap.docs) {
+          if (disposed) return;
+          final bookingData = bookingDoc.data();
+          final rideId = bookingData['rideId'] as String?;
+          if (rideId == null || rideId.isEmpty) continue;
+          try {
+            final rideSnap =
+                await _firestore.collection('rides').doc(rideId).get();
+            if (!rideSnap.exists) continue;
+            final entry = RideHistoryEntry.fromPassengerBooking(
+              bookingDoc.id,
+              bookingData,
+              rideSnap.data()!,
+            );
+            if (entry != null) entries.add(entry);
+          } catch (_) {
+            // Skip malformed entries silently.
+          }
+        }
+        if (!disposed) {
+          passengerEntries = entries;
+          emit();
+        }
+      },
+      onError: (_) => emit(),
+    );
+
+    controller.onCancel = () {
+      disposed = true;
+      driverSub.cancel();
+      passengerSub.cancel();
+    };
+
+    return controller.stream;
   }
 
   Future<String> createRide({
@@ -198,6 +293,16 @@ class DatabaseService {
       ...method,
       'createdAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  /// Deletes a single payment method document for [uid].
+  Future<void> deletePaymentMethod(String uid, String docId) async {
+    await _firestore
+        .collection('users')
+        .doc(uid)
+        .collection('paymentMethods')
+        .doc(docId)
+        .delete();
   }
 
   Stream<QuerySnapshot> streamPaymentMethods(String uid) {

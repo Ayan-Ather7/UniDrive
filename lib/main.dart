@@ -17,6 +17,7 @@ import 'screens/active_ride_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/driver_dashboard_screen.dart';
+import 'screens/ride_history_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -73,6 +74,7 @@ class _UniDriveAppState extends State<UniDriveApp> {
             driver: ModalRoute.of(ctx)!.settings.arguments as DriverModel),
         '/profile': (_) => const ProfileScreen(),
         '/chat': (_) => const ChatScreen(),
+        '/ride-history': (_) => const RideHistoryScreen(),
         '/driver-dashboard': (ctx) => DriverDashboardScreen(
             rideId: ModalRoute.of(ctx)!.settings.arguments as String),
       },

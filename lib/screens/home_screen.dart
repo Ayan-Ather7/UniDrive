@@ -544,7 +544,7 @@ class _AppDrawer extends StatelessWidget {
                   _DrawerTile(icon: Icons.person_outline_rounded, label: 'My Profile', isDark: isDark,
                       onTap: () { Navigator.pop(context); Navigator.pushNamed(context, '/profile'); }),
                   _DrawerTile(icon: Icons.history_rounded, label: 'Ride History', isDark: isDark,
-                      onTap: () { Navigator.pop(context); Navigator.pushNamed(context, '/profile'); }),
+                      onTap: () { Navigator.pop(context); Navigator.pushNamed(context, '/ride-history'); }),
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Divider(color: border, height: 1),
