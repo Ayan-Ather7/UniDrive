@@ -1,4 +1,4 @@
-# UniDrive 🚗🎓
+# UniDrive 🚗
 
 **A University-Exclusive Ride-Sharing Platform Built with Flutter & Firebase**
 
