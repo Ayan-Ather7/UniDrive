@@ -1,17 +1,36 @@
-# UniDrive
+# UniDrive 🚗🎓
 
-A new Flutter project.
+**A University-Exclusive Ride-Sharing Platform Built with Flutter & Firebase**
 
-## Getting Started
+UniDrive is a secure, closed-ecosystem carpooling application designed specifically for university students. It connects student drivers who have empty seats with student passengers looking for safe, affordable commutes to and from campus. 
 
-This project is a starting point for a Flutter application.
+## ✨ Key Features
 
-A few resources to get you started if this is your first Flutter project:
+* **Verified Student Access:** Walled-garden authentication restricts registration to active university emails only.
+* **Dual-Mode Interface:** Seamlessly switch between **Passenger Mode** (green theme) and **Driver Mode** (purple theme).
+* **Smart Routing & Geocoding:** Integrated with Mapbox API for accurate address autocomplete, destination prediction, and route polyline rendering.
+* **Real-Time Ride Matching:** Live Firestore streams allow instant booking requests, acceptances, and status updates.
+* **Safety First ("Pink Ride"):** A backend-enforced, female-only ride filter ensures a comfortable and secure commuting option.
+* **Integrated Chat:** In-app messaging connects matched drivers and passengers instantly.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## 🛠️ Technology Stack
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+* **Frontend:** Flutter (Dart)
+* **Backend:** Firebase (Authentication, Cloud Firestore, Cloud Messaging)
+* **Maps & Navigation:** OpenStreetMap (via `flutter_map`) & Mapbox APIs
+* **Architecture:** State management and real-time NoSQL data syncing
+
+## 🚀 Getting Started
+
+To run this project locally, you will need Flutter installed on your machine and a physical Android device or emulator.
+
+### Prerequisites
+* Flutter SDK (v3.0.0 or higher)
+* A valid `google-services.json` file from Firebase (placed in `android/app/`)
+* A Mapbox Secret Access Token
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone [https://github.com/your-username/unidrive-app.git](https://github.com/your-username/unidrive-app.git)
