@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../theme/app_theme.dart';
 import '../widgets/unidrive_logo.dart';
 import '../services/auth_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -27,44 +28,89 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   bool _validateEmail(String value) {
-    final pattern = RegExp(
-        r'^[\w.+-]+@[\w-]+(\.[\w-]+)*\.edu(\.pk)?$',
-        caseSensitive: false);
+    // Relaxed regex to allow personal emails like @gmail.com
+    final pattern = RegExp(r'^[\w.+-]+@[\w-]+\.[\w.-]+$', caseSensitive: false);
     return pattern.hasMatch(value.trim());
   }
 
-  Future<void> _showForgotPassword() async {
-    // ── Recovery Email Notice ──────────────────────────────────────────────
-    // UniDrive uses a separate "Recovery Email" field (personal .com address)
-    // collected at registration, because university .edu.pk addresses block
-    // external mail. The actual reset will be triggered by a Cloud Function
-    // (sendRecoveryEmail) that reads recoveryEmail from Firestore and sends
-    // a reset link. That function is currently under construction.
-    // ───────────────────────────────────────────────────────────────────────
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.construction_rounded,
-                color: Colors.white, size: 18),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Custom recovery email system is under construction.',
-                style: GoogleFonts.plusJakartaSans(
-                    fontWeight: FontWeight.w600, fontSize: 13),
+  // --- THE FORGOT PASSWORD POPUP (100% FREE METHOD) ---
+  void _showForgotPasswordDialog(BuildContext context) {
+    final emailController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        // 1. Check if the app is currently in dark mode
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+
+        return AlertDialog(
+          backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.lock_reset_rounded, color: Color(0xFF0072FF)),
+              SizedBox(width: 10),
+              Text('Reset Password', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // FIX 1: Text color adapts to light/dark mode automatically
+              Text(
+                'Enter your personal email address and we will send you a secure reset link.', 
+                style: TextStyle(color: isDark ? Colors.white70 : Colors.black54, fontSize: 13),
               ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: emailController,
+                // FIX 2: Force the typing text to be black so it shows up on the light box
+                style: const TextStyle(color: Colors.black), 
+                decoration: InputDecoration(
+                  hintText: 'e.g. yourname@gmail.com',
+                  hintStyle: const TextStyle(color: Colors.black38), // Forces hint to be dark grey
+                  prefixIcon: const Icon(Icons.email_rounded, color: Colors.grey),
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0072FF)),
+              onPressed: () async {
+                final email = emailController.text.trim();
+                if (email.isNotEmpty) {
+                  Navigator.pop(ctx); 
+                  
+                  try {
+                    await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+                    
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Password reset link sent! Check your inbox.'), backgroundColor: Colors.green),
+                      );
+                    }
+                  } on FirebaseAuthException catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(e.message ?? 'Error sending email'), backgroundColor: Colors.red),
+                      );
+                    }
+                  }
+                }
+              },
+              child: const Text('Send Link'),
             ),
           ],
-        ),
-        backgroundColor: AppColors.navy,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14)),
-        margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 4),
-      ),
+        );
+      }
     );
   }
 
@@ -74,9 +120,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() {
       _emailError = email.isEmpty
-          ? 'Please enter your university email'
+          ? 'Please enter your personal email'
           : !_validateEmail(email)
-              ? 'Must be a valid university email (e.g. name@uni.edu.pk or name@uni.edu)'
+              ? 'Please enter a valid email address'
               : null;
       _passError = pass.isEmpty ? 'Please enter your password' : null;
     });
@@ -154,7 +200,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _Label('UNIVERSITY EMAIL'),
+                        _Label('PERSONAL EMAIL'),
                         const SizedBox(height: 10),
                         TextField(
                           controller: _emailCtrl,
@@ -165,7 +211,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             fontWeight: FontWeight.w500,
                           ),
                           decoration: InputDecoration(
-                            hintText: 'name@university.edu.pk',
+                            hintText: 'yourname@gmail.com', // Used to say 'name@university.edu.pk'
                             prefixIcon: const Icon(
                               Icons.alternate_email_rounded,
                               size: 20,
@@ -262,7 +308,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
               // Forgot password
               TextButton(
-                onPressed: _showForgotPassword,
+                onPressed: () => _showForgotPasswordDialog(context),
                 child: Text(
                   'Forgot your password?',
                   style: GoogleFonts.plusJakartaSans(

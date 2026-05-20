@@ -33,7 +33,7 @@ class AuthService {
 
       UserCredential credential =
           await _auth.createUserWithEmailAndPassword(
-        email: email.trim(),
+        email: recoveryEmail.trim(), // <--- Now it registers the Gmail!
         password: password,
       );
       await credential.user?.sendEmailVerification();
@@ -60,4 +60,5 @@ class AuthService {
   Future<void> logout() async {
     await _auth.signOut();
   }
+  
 }
