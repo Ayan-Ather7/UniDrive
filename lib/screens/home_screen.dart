@@ -37,7 +37,103 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _requestLocationPermission() async {
-    await Permission.locationWhenInUse.request();
+    // Step 1 — Is the device's Location Service (GPS) actually switched on?
+    final serviceOn = await geo.Geolocator.isLocationServiceEnabled();
+    if (!serviceOn) {
+      if (mounted) _showLocationServiceDialog();
+      return;
+    }
+
+    // Step 2 — Check / request the runtime permission
+    var perm = await geo.Geolocator.checkPermission();
+    if (perm == geo.LocationPermission.denied) {
+      perm = await geo.Geolocator.requestPermission();
+    }
+
+    // Step 3 — Permanently denied: user must fix it in app settings
+    if (perm == geo.LocationPermission.deniedForever) {
+      if (mounted) _showPermissionDeniedDialog();
+    }
+  }
+
+  /// Shown when the device GPS switch is off.
+  void _showLocationServiceDialog() {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.location_off_rounded, color: AppColors.orange),
+            const SizedBox(width: 10),
+            Text('Location Services Off',
+                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800)),
+          ],
+        ),
+        content: Text(
+          'UniDrive needs GPS to show your position and match you with nearby '
+          'rides. Please enable Location Services in your device Settings.',
+          style: GoogleFonts.plusJakartaSans(fontSize: 13, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Not Now',
+                style: GoogleFonts.plusJakartaSans(
+                    color: AppColors.textMuted, fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              geo.Geolocator.openLocationSettings();
+            },
+            child: Text('Open Settings',
+                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Shown when the permission is permanently denied by the OS.
+  void _showPermissionDeniedDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.lock_rounded, color: AppColors.maroonLight),
+            const SizedBox(width: 10),
+            Text('Permission Denied',
+                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800)),
+          ],
+        ),
+        content: Text(
+          'Location access has been permanently blocked. To use the map and '
+          'ride-matching features, please grant location permission in the '
+          'app\'s system settings.',
+          style: GoogleFonts.plusJakartaSans(fontSize: 13, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel',
+                style: GoogleFonts.plusJakartaSans(
+                    color: AppColors.textMuted, fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              openAppSettings(); // from permission_handler
+            },
+            child: Text('Open App Settings',
+                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _flyToUserLocation() async {
@@ -58,14 +154,38 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         mbx.MapAnimationOptions(duration: 800),
       );
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Enable location permission to center the map on you.'),
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 3),
-        ));
+    } catch (e) {
+      if (!mounted) return;
+      // Give a specific, actionable message based on what failed
+      final String msg;
+      final bool canOpenSettings;
+      if (e is geo.LocationServiceDisabledException) {
+        msg = 'GPS is turned off — enable Location Services and try again.';
+        canOpenSettings = true;
+      } else if (e is geo.PermissionDeniedException) {
+        msg = 'Location permission denied. Grant it in Settings to use this feature.';
+        canOpenSettings = true;
+      } else {
+        msg = 'Could not get your location. Ensure GPS is on and try again.';
+        canOpenSettings = false;
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg,
+              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w500)),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5),
+          margin: const EdgeInsets.all(16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          action: canOpenSettings
+              ? SnackBarAction(
+                  label: 'Settings',
+                  textColor: AppColors.cyan,
+                  onPressed: () => geo.Geolocator.openLocationSettings(),
+                )
+              : null,
+        ),
+      );
     }
   }
 

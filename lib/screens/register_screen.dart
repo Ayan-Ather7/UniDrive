@@ -23,10 +23,11 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _passCtrl = TextEditingController();
-  final _confirmCtrl = TextEditingController();
+  final _nameCtrl          = TextEditingController();
+  final _emailCtrl         = TextEditingController();
+  final _recoveryEmailCtrl = TextEditingController();
+  final _passCtrl          = TextEditingController();
+  final _confirmCtrl       = TextEditingController();
   bool _obscure = true;
   bool _loading = false;
 
@@ -48,6 +49,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void dispose() {
     _nameCtrl.dispose();
     _emailCtrl.dispose();
+    _recoveryEmailCtrl.dispose();
     _passCtrl.dispose();
     _confirmCtrl.dispose();
     super.dispose();
@@ -131,6 +133,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         name: _nameCtrl.text,
         gender: _selectedGender!,
         dob: _selectedDob!,
+        recoveryEmail: _recoveryEmailCtrl.text,
       );
       
       if (credential?.user != null) {
@@ -140,7 +143,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
       if (!mounted) return;
       setState(() => _loading = false);
-      Navigator.pushNamed(context, '/verify');
+      // ID upload complete — proceed directly to home; admin verifies asynchronously.
+      Navigator.pushNamedAndRemoveUntil(context, '/home', (r) => false);
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -266,6 +270,57 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   email.endsWith('.edu.pk') || email.endsWith('.edu');
                               if (!email.contains('@') || !isValidUniEmail) {
                                 return 'Must be a valid university email (e.g. name@uni.edu.pk or name@uni.edu)';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 20),
+
+                          // ── Recovery Email ──────────────────────────────────
+                          _Label('RECOVERY EMAIL'),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Used for password resets — must be a personal email, not your university address.',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 10,
+                              color: AppColors.textMuted,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            controller: _recoveryEmailCtrl,
+                            keyboardType: TextInputType.emailAddress,
+                            style: TextStyle(
+                              color: textColor,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            decoration: const InputDecoration(
+                              hintText: 'yourname@gmail.com',
+                              prefixIcon: Icon(
+                                Icons.mark_email_read_outlined,
+                                size: 20,
+                              ),
+                            ),
+                            validator: (v) {
+                              if (v == null || v.trim().isEmpty) {
+                                return 'Recovery email is required';
+                              }
+                              final recovery = v.trim().toLowerCase();
+                              if (!recovery.contains('@') ||
+                                  !recovery.contains('.')) {
+                                return 'Please enter a valid email address';
+                              }
+                              // Must NOT be a university address
+                              if (recovery.endsWith('.edu.pk') ||
+                                  recovery.endsWith('.edu')) {
+                                return 'Recovery email cannot be a university (.edu) address';
+                              }
+                              // Cross-field: must differ from the uni email
+                              final uniEmail =
+                                  _emailCtrl.text.trim().toLowerCase();
+                              if (recovery == uniEmail) {
+                                return 'Recovery email must be different from your university email';
                               }
                               return null;
                             },

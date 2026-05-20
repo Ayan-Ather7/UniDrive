@@ -9,34 +9,34 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../widgets/unidrive_logo.dart';
 import '../widgets/verified_badge.dart';
 
-// ── Payment method model ──────────────────────────────────────────────────────
+// ── Payment model (Tasks 4 & 8) ──────────────────────────────────────────────
+// Replaces the old `PaymentMethod` enum which had a defunct 'wallet' value
+// and a hardcoded 'Visa 4242' card. Payment selection is now fully dynamic:
+//  • Cash is always available.
+//  • Cards come from the passenger's Firestore paymentMethods subcollection.
+//  • Card option is gated by whether the driver has saved cards (Task 8).
 
-enum PaymentMethod { cash, wallet, card }
+@immutable
+class _SelectedPayment {
+  final bool isCash;
+  final String label;     // e.g. '•••• 4242'
+  final String? docId;    // Firestore doc ID; null for cash
 
-extension PaymentMethodX on PaymentMethod {
-  String get label => switch (this) {
-        PaymentMethod.cash   => 'Cash',
-        PaymentMethod.wallet => 'UniDrive Wallet',
-        PaymentMethod.card   => 'Visa •••• 4242',
-      };
+  const _SelectedPayment.cash()
+      : isCash = true,
+        label = 'Cash',
+        docId = null;
 
-  String get subtitle => switch (this) {
-        PaymentMethod.cash   => 'Pay the driver directly',
-        PaymentMethod.wallet => 'Balance: PKR 1,250',
-        PaymentMethod.card   => 'Credit / Debit Card',
-      };
+  const _SelectedPayment.card({
+    required this.label,
+    required this.docId,
+  }) : isCash = false;
 
-  IconData get icon => switch (this) {
-        PaymentMethod.cash   => Icons.payments_rounded,
-        PaymentMethod.wallet => Icons.account_balance_wallet_rounded,
-        PaymentMethod.card   => Icons.credit_card_rounded,
-      };
-
-  Color get color => switch (this) {
-        PaymentMethod.cash   => AppColors.success,
-        PaymentMethod.wallet => AppColors.blue,
-        PaymentMethod.card   => AppColors.orange,
-      };
+  IconData get icon =>
+      isCash ? Icons.payments_rounded : Icons.credit_card_rounded;
+  Color get color => isCash ? AppColors.success : AppColors.orange;
+  String get subtitle =>
+      isCash ? 'Pay the driver directly' : 'Credit / Debit Card';
 }
 
 class RideMatchScreen extends StatefulWidget {
@@ -48,7 +48,7 @@ class RideMatchScreen extends StatefulWidget {
 class _RideMatchScreenState extends State<RideMatchScreen> {
   bool _pinkOnly = false;
   int _selectedDriverIdx = 0;
-  PaymentMethod _selectedPayment = PaymentMethod.cash;
+  _SelectedPayment _selectedPayment = const _SelectedPayment.cash();
 
   void _requestRide(DriverModel driver) async {
     final uid = AuthService().currentUid;
@@ -156,7 +156,8 @@ class _RideMatchScreenState extends State<RideMatchScreen> {
              final data = doc.data() as Map<String, dynamic>;
              return DriverModel(
                id: doc.id,
-               name: 'Driver ${doc.id.substring(0, 4)}', // Faked info since driver detail join is complex
+               driverId: data['driverId'] as String? ?? doc.id,
+               name: 'Driver ${doc.id.substring(0, 4)}',
                avatarUrl: '',
                carModel: 'Honda Civic',
                carColor: 'Silver',
@@ -282,13 +283,15 @@ class _RideMatchScreenState extends State<RideMatchScreen> {
                             onRequest: () => _requestRide(drivers[i]),
                             onPaymentTap: () async {
                               final result =
-                                  await showModalBottomSheet<PaymentMethod>(
+                                  await showModalBottomSheet<_SelectedPayment>(
                                 context: context,
                                 backgroundColor: Colors.transparent,
                                 isScrollControlled: true,
                                 builder: (_) => _PaymentSheet(
                                   isDark: isDark,
                                   selected: _selectedPayment,
+                                  passengerId: uid ?? '',
+                                  driverId: drivers[i].driverId,
                                 ),
                               );
                               if (result != null) {
@@ -426,7 +429,7 @@ class _DriverCard extends StatelessWidget {
   final DriverModel driver;
   final bool isDark, isSelected;
   final VoidCallback onTap, onRequest, onPaymentTap;
-  final PaymentMethod selectedPayment;
+  final _SelectedPayment selectedPayment;
   const _DriverCard({
     required this.driver,
     required this.isDark,
@@ -713,7 +716,7 @@ class _Stat extends StatelessWidget {
 // ── Payment tile ──────────────────────────────────────────────────────────────
 
 class _PaymentTile extends StatelessWidget {
-  final PaymentMethod payment;
+  final _SelectedPayment payment;
   final bool isDark;
   final VoidCallback onTap;
 
@@ -778,19 +781,36 @@ class _PaymentTile extends StatelessWidget {
   }
 }
 
-// ── Payment bottom sheet ──────────────────────────────────────────────────────
+// ── Payment bottom sheet (Tasks 4 & 8) ───────────────────────────────────────
+// • Streams passenger's saved cards from Firestore in real time
+// • Streams driver's paymentMethods subcollection to gate card availability
+// • Returns a _SelectedPayment via Navigator.pop(context, payment)
 
-class _PaymentSheet extends StatelessWidget {
+class _PaymentSheet extends StatefulWidget {
   final bool isDark;
-  final PaymentMethod selected;
+  final _SelectedPayment selected;
+  final String passengerId;
+  final String driverId;
 
-  const _PaymentSheet({required this.isDark, required this.selected});
+  const _PaymentSheet({
+    required this.isDark,
+    required this.selected,
+    required this.passengerId,
+    required this.driverId,
+  });
+
+  @override
+  State<_PaymentSheet> createState() => _PaymentSheetState();
+}
+
+class _PaymentSheetState extends State<_PaymentSheet> {
+  final _db = DatabaseService();
 
   @override
   Widget build(BuildContext context) {
-    final bg = isDark ? AppColors.darkCard : Colors.white;
+    final bg = widget.isDark ? AppColors.darkCard : Colors.white;
     final textPrimary =
-        isDark ? AppColors.textPrimaryDark : AppColors.textPrimary;
+        widget.isDark ? AppColors.textPrimaryDark : AppColors.textPrimary;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 24),
@@ -807,6 +827,7 @@ class _PaymentSheet extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Drag handle
           Container(
             margin: const EdgeInsets.only(top: 12, bottom: 4),
             width: 40,
@@ -820,7 +841,7 @@ class _PaymentSheet extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
             child: Row(
               children: [
-                Text('Select Payment Method',
+                Text('Select Payment',
                     style: GoogleFonts.plusJakartaSans(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
@@ -835,182 +856,261 @@ class _PaymentSheet extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 8),
-          for (final method in PaymentMethod.values)
-            _PaymentOption(
-              method: method,
-              isSelected: method == selected,
-              isDark: isDark,
-              onTap: () => Navigator.pop(context, method),
-            ).animate().fadeIn(
-                delay: Duration(
-                    milliseconds:
-                        100 * PaymentMethod.values.indexOf(method))),
+          const SizedBox(height: 4),
+
+          // ── Cash (always available) ──────────────────────────────
+          _buildOption(
+            payment: const _SelectedPayment.cash(),
+            driverAcceptsCards: true, // cash never gated
+            delay: 0,
+          ),
+
+          // ── Saved cards from Firestore ───────────────────────────
+          // Check driver's cards first (Task 8), then show passenger cards
+          StreamBuilder<QuerySnapshot>(
+            stream: _db.streamDriverPaymentMethods(widget.driverId),
+            builder: (ctx, driverSnap) {
+              final driverHasCards = (driverSnap.data?.docs.isNotEmpty) ?? false;
+
+              return StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(widget.passengerId)
+                    .collection('paymentMethods')
+                    .snapshots(),
+                builder: (ctx, passengerSnap) {
+                  if (passengerSnap.connectionState ==
+                      ConnectionState.waiting) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Center(
+                          child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2))),
+                    );
+                  }
+
+                  final cards = passengerSnap.data?.docs ?? [];
+
+                  if (cards.isEmpty) {
+                    // Passenger has no saved cards
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(18),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(18),
+                          onTap: () {
+                            Navigator.pop(context);
+                            Navigator.pushNamed(context, '/profile');
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 14),
+                            decoration: BoxDecoration(
+                              color: widget.isDark
+                                  ? AppColors.darkBg
+                                  : AppColors.bgGrey,
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(
+                                  color: AppColors.blue
+                                      .withValues(alpha: 0.3),
+                                  style: BorderStyle.solid),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.blue
+                                        .withValues(alpha: 0.1),
+                                    borderRadius:
+                                        BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(
+                                      Icons.add_card_rounded,
+                                      color: AppColors.blue,
+                                      size: 22),
+                                ),
+                                const SizedBox(width: 16),
+                                Text('+ Add a Card',
+                                    style: GoogleFonts.plusJakartaSans(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.blue)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+
+                  // Show each saved card
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (int i = 0; i < cards.length; i++)
+                        _buildOption(
+                          payment: _SelectedPayment.card(
+                            label: cards[i]['label'] as String? ??
+                                '•••• ????',
+                            docId: cards[i].id,
+                          ),
+                          driverAcceptsCards: driverHasCards,
+                          delay: i + 1,
+                        ),
+                      if (!driverHasCards)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                              20, 4, 20, 0),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.info_outline_rounded,
+                                  size: 14,
+                                  color: AppColors.textMuted),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'This driver accepts cash only.',
+                                  style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 11,
+                                      color: AppColors.textMuted,
+                                      fontWeight: FontWeight.w500),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+
           const SizedBox(height: 20),
         ],
       ),
     );
   }
-}
 
-class _PaymentOption extends StatelessWidget {
-  final PaymentMethod method;
-  final bool isSelected;
-  final bool isDark;
-  final VoidCallback onTap;
-
-  const _PaymentOption({
-    required this.method,
-    required this.isSelected,
-    required this.isDark,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final surfaceBg = isDark ? AppColors.darkBg : AppColors.bgGrey;
-
-    Widget? cardChip;
-    if (method == PaymentMethod.card) {
-      cardChip = Row(
-        children: [
-          _NetworkBadge(label: 'VISA', color: AppColors.navy),
-          const SizedBox(width: 6),
-          _NetworkBadge(label: 'MC', color: AppColors.maroon),
-        ],
-      );
-    } else if (method == PaymentMethod.wallet) {
-      cardChip = Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: AppColors.blue.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text('PKR 1,250',
-            style: GoogleFonts.plusJakartaSans(
-                color: AppColors.blue,
-                fontSize: 10,
-                fontWeight: FontWeight.w800)),
-      );
-    }
+  Widget _buildOption({
+    required _SelectedPayment payment,
+    required bool driverAcceptsCards,
+    required int delay,
+  }) {
+    final isCard = !payment.isCash;
+    final disabled = isCard && !driverAcceptsCards;
+    final isSelected = !disabled &&
+        (widget.selected.isCash == payment.isCash &&
+            widget.selected.docId == payment.docId);
+    final surfaceBg =
+        widget.isDark ? AppColors.darkBg : AppColors.bgGrey;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(18),
-        child: InkWell(
-          onTap: onTap,
+      child: Opacity(
+        opacity: disabled ? 0.4 : 1.0,
+        child: Material(
+          color: Colors.transparent,
           borderRadius: BorderRadius.circular(18),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeOutCubic,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? method.color.withValues(alpha: 0.08)
-                  : surfaceBg,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
+          child: InkWell(
+            onTap: disabled
+                ? null
+                : () => Navigator.pop(context, payment),
+            borderRadius: BorderRadius.circular(18),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
                 color: isSelected
-                    ? method.color.withValues(alpha: 0.5)
-                    : Colors.transparent,
-                width: 1.5,
+                    ? payment.color.withValues(alpha: 0.08)
+                    : surfaceBg,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: isSelected
+                      ? payment.color.withValues(alpha: 0.5)
+                      : Colors.transparent,
+                  width: 1.5,
+                ),
               ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: method.color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: payment.color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(payment.icon,
+                        color: payment.color, size: 22),
                   ),
-                  child: Icon(method.icon, color: method.color, size: 22),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(method.label,
-                          style: GoogleFonts.plusJakartaSans(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                              color: isSelected
-                                  ? method.color
-                                  : (isDark
-                                      ? AppColors.textPrimaryDark
-                                      : AppColors.textPrimary))),
-                      const SizedBox(height: 2),
-                      Text(method.subtitle,
-                          style: GoogleFonts.plusJakartaSans(
-                              fontSize: 12,
-                              color: AppColors.textMuted,
-                              fontWeight: FontWeight.w500)),
-                    ],
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(payment.label,
+                            style: GoogleFonts.plusJakartaSans(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: isSelected
+                                    ? payment.color
+                                    : (widget.isDark
+                                        ? AppColors.textPrimaryDark
+                                        : AppColors.textPrimary))),
+                        const SizedBox(height: 2),
+                        Text(payment.subtitle,
+                            style: GoogleFonts.plusJakartaSans(
+                                fontSize: 12,
+                                color: AppColors.textMuted,
+                                fontWeight: FontWeight.w500)),
+                      ],
+                    ),
                   ),
-                ),
-                if (cardChip != null) ...[
-                  cardChip,
-                  const SizedBox(width: 10),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: isSelected
+                        ? Container(
+                            key: const ValueKey('check'),
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: payment.color,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.check_rounded,
+                                size: 14, color: Colors.white),
+                          )
+                        : Container(
+                            key: const ValueKey('empty'),
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                  color: AppColors.darkBorder,
+                                  width: 1.5),
+                            ),
+                          ),
+                  ),
                 ],
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
-                  child: isSelected
-                      ? Container(
-                          key: const ValueKey('check'),
-                          width: 24,
-                          height: 24,
-                          decoration: BoxDecoration(
-                            color: method.color,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.check_rounded,
-                              size: 14, color: Colors.white),
-                        )
-                      : Container(
-                          key: const ValueKey('empty'),
-                          width: 24,
-                          height: 24,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                                color: AppColors.darkBorder, width: 1.5),
-                          ),
-                        ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
       ),
-    );
+    ).animate().fadeIn(
+        delay: Duration(milliseconds: 80 * delay));
   }
 }
 
-class _NetworkBadge extends StatelessWidget {
-  final String label;
-  final Color color;
-  const _NetworkBadge({required this.label, required this.color});
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-      ),
-      child: Text(label,
-          style: GoogleFonts.plusJakartaSans(
-              color: color,
-              fontSize: 9,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.5)),
-    );
-  }
-}

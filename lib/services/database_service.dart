@@ -11,6 +11,7 @@ class DatabaseService {
     required String name,
     required String gender,
     required DateTime dob,
+    required String recoveryEmail,
   }) async {
     await _firestore.collection('users').doc(uid).set({
       'uid': uid,
@@ -18,11 +19,12 @@ class DatabaseService {
       'email': email,
       'gender': gender,
       'dob': Timestamp.fromDate(dob),
+      'recoveryEmail': recoveryEmail, // used for password reset via Cloud Function
       'isVerified': false, // STRICTLY FALSE UNTIL ADMIN APPROVAL
-      'idImageUrl': '', 
+      'idImageUrl': '',
       'ratingAsDriver': 5.0,
       'ratingAsPassenger': 5.0,
-      'currentMode': 'Passenger', 
+      'currentMode': 'Passenger',
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
@@ -33,6 +35,37 @@ class DatabaseService {
 
   Stream<DocumentSnapshot> streamUserData(String uid) {
     return _firestore.collection('users').doc(uid).snapshots();
+  }
+
+  // ── Live location (Task 3) ────────────────────────────────────────────────
+
+  /// Writes the user's current GPS position to `locations/{uid}`.
+  /// Called on every GPS update during an active ride.
+  Future<void> updateUserLocation(
+      String uid, double lat, double lng) async {
+    await _firestore.collection('locations').doc(uid).set({
+      'lat': lat,
+      'lng': lng,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Streams real-time location updates for [uid] from `locations/{uid}`.
+  Stream<DocumentSnapshot> streamUserLocation(String uid) {
+    return _firestore.collection('locations').doc(uid).snapshots();
+  }
+
+  // ── Driver payment capability (Task 8) ───────────────────────────────────
+
+  /// Streams the driver's saved payment methods subcollection.
+  /// If the snapshot is empty the driver accepts cash only — passenger
+  /// card option should be disabled.
+  Stream<QuerySnapshot> streamDriverPaymentMethods(String driverId) {
+    return _firestore
+        .collection('users')
+        .doc(driverId)
+        .collection('paymentMethods')
+        .snapshots();
   }
 
   Stream<QuerySnapshot> streamAvailableRides(bool isPinkOnly) {

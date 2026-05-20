@@ -9,7 +9,7 @@ import 'models/driver_model.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
-import 'screens/verify_identity_screen.dart';
+
 import 'screens/home_screen.dart';
 import 'screens/ride_match_screen.dart';
 import 'screens/accepted_ride_screen.dart';
@@ -66,7 +66,7 @@ class _UniDriveAppState extends State<UniDriveApp> {
         '/welcome': (_) => const WelcomeScreen(),
         '/login': (_) => const LoginScreen(),
         '/register': (_) => const RegisterScreen(),
-        '/verify': (_) => const VerifyIdentityScreen(),
+
         '/home': (_) => const HomeScreen(),
         '/matches': (_) => const RideMatchScreen(),
         '/accepted': (_) => const AcceptedRideScreen(),

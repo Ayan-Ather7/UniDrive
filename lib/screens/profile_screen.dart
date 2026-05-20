@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -124,12 +125,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // ── Payment method bottom sheet ───────────────────────────────────────────
+  // ── Add Card bottom sheet (Task 6 & 7) ──────────────────────────────────────
+  // • Cash is the default fallback — not selectable here.
+  // • CVV is NEVER persisted to Firestore; only last 4 digits + expiry are stored.
 
   void _showAddPaymentSheet(String uid) {
-    String selectedType = 'Cash';
-    final last4Ctrl = TextEditingController();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardNumberCtrl = TextEditingController();
+    final expiryCtrl     = TextEditingController();
+    final cvvCtrl        = TextEditingController();
+    final formKey        = GlobalKey<FormState>();
+    final isDark         = Theme.of(context).brightness == Brightness.dark;
 
     showModalBottomSheet(
       context: context,
@@ -138,14 +143,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
-          padding: EdgeInsets.fromLTRB(
-              24, 20, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(
+            24, 20, 24, MediaQuery.of(ctx).viewInsets.bottom + 28),
+        child: Form(
+          key: formKey,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ── Drag handle ──────────────────────────────────────────
               Center(
                 child: Container(
                   width: 40, height: 4,
@@ -156,61 +163,200 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               const SizedBox(height: 20),
+
+              // ── Title ────────────────────────────────────────────────
               Text(
-                'Add Payment Method',
+                'Add New Card',
                 style: GoogleFonts.plusJakartaSans(
-                  fontWeight: FontWeight.w800, fontSize: 18,
-                  color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                  color: isDark
+                      ? AppColors.textPrimaryDark
+                      : AppColors.textPrimary,
                 ),
               ),
-              const SizedBox(height: 16),
-              // Type selector
+              const SizedBox(height: 4),
+              Text(
+                'Your CVV is never stored — only the last 4 digits are saved.',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 11,
+                  color: AppColors.textMuted,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 22),
+
+              // ── Card Number ──────────────────────────────────────────
+              _fieldLabel('CARD NUMBER'),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: cardNumberCtrl,
+                keyboardType: TextInputType.number,
+                inputFormatters: [_CardNumberFormatter()],
+                maxLength: 19, // 16 digits + 3 spaces
+                style: TextStyle(
+                  color: isDark
+                      ? AppColors.textPrimaryDark
+                      : AppColors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 2.5,
+                ),
+                decoration: InputDecoration(
+                  hintText: '0000 0000 0000 0000',
+                  prefixIcon: const Icon(
+                      Icons.credit_card_rounded, size: 20),
+                  counterText: '',
+                ),
+                validator: (v) {
+                  final digits = (v ?? '').replaceAll(' ', '');
+                  if (digits.length != 16) {
+                    return 'Please enter a valid 16-digit card number';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 14),
+
+              // ── Expiry + CVV row ─────────────────────────────────────
               Row(
-                children: ['Cash', 'Card'].map((type) {
-                  final selected = selectedType == type;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 10),
-                    child: ChoiceChip(
-                      label: Text(type),
-                      selected: selected,
-                      onSelected: (_) => setSheet(() => selectedType = type),
-                      selectedColor: AppColors.blue,
-                      labelStyle: GoogleFonts.plusJakartaSans(
-                        fontWeight: FontWeight.w700,
-                        color: selected ? Colors.white : AppColors.textMuted,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Expiry
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _fieldLabel('EXPIRY DATE'),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          controller: expiryCtrl,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [_ExpiryFormatter()],
+                          maxLength: 5,
+                          style: TextStyle(
+                            color: isDark
+                                ? AppColors.textPrimaryDark
+                                : AppColors.textPrimary,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.5,
+                          ),
+                          decoration: const InputDecoration(
+                            hintText: 'MM/YY',
+                            prefixIcon: Icon(
+                                Icons.calendar_month_rounded, size: 20),
+                            counterText: '',
+                          ),
+                          validator: (v) {
+                            if (v == null || v.length != 5) {
+                              return 'Enter MM/YY';
+                            }
+                            final parts = v.split('/');
+                            final month =
+                                int.tryParse(parts.first) ?? 0;
+                            if (month < 1 || month > 12) {
+                              return 'Invalid month';
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  // CVV
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _fieldLabel('CVV'),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          controller: cvvCtrl,
+                          keyboardType: TextInputType.number,
+                          obscureText: true,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                          maxLength: 3,
+                          style: TextStyle(
+                            color: isDark
+                                ? AppColors.textPrimaryDark
+                                : AppColors.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          decoration: const InputDecoration(
+                            hintText: '•••',
+                            prefixIcon: Icon(
+                                Icons.lock_outline_rounded, size: 20),
+                            counterText: '',
+                          ),
+                          validator: (v) {
+                            if (v == null || v.length != 3) {
+                              return '3 digits required';
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              // ── Security note ─────────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppColors.blue.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: AppColors.blue.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.shield_outlined,
+                        size: 16, color: AppColors.blue),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Encrypted connection · CVV is never stored.',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 11,
+                          color: AppColors.blue,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  );
-                }).toList(),
-              ),
-              if (selectedType == 'Card') ...[
-                const SizedBox(height: 14),
-                _SheetField(
-                  ctrl: last4Ctrl,
-                  label: 'Last 4 digits',
-                  hint: '1234',
-                  keyboardType: TextInputType.number,
-                  maxLength: 4,
+                  ],
                 ),
-              ],
-              const SizedBox(height: 24),
+              ),
+              const SizedBox(height: 22),
+
+              // ── Save button ───────────────────────────────────────────
               SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.credit_card_rounded, size: 18),
+                  label: const Text('Save Card'),
                   onPressed: () async {
-                    final Map<String, dynamic> method = {'type': selectedType};
-                    if (selectedType == 'Card') {
-                      if (last4Ctrl.text.trim().length != 4) return;
-                      method['last4'] = last4Ctrl.text.trim();
-                      method['label'] = '•••• ${last4Ctrl.text.trim()}';
-                    } else {
-                      method['label'] = 'Cash';
-                    }
-                    await _db.savePaymentMethod(uid, method);
-                    last4Ctrl.dispose();
+                    if (!formKey.currentState!.validate()) return;
+                    final digits =
+                        cardNumberCtrl.text.replaceAll(' ', '');
+                    final last4 = digits.substring(digits.length - 4);
+                    // ⚠️  CVV intentionally NOT stored — only display metadata.
+                    await _db.savePaymentMethod(uid, {
+                      'type':       'Card',
+                      'last4':      last4,
+                      'label':      '•••• $last4',
+                      'expiryMmYy': expiryCtrl.text.trim(),
+                    });
+                    cardNumberCtrl.dispose();
+                    expiryCtrl.dispose();
+                    cvvCtrl.dispose();
                     if (ctx.mounted) Navigator.pop(ctx);
                   },
-                  child: const Text('Add Method'),
                 ),
               ),
             ],
@@ -839,31 +985,83 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
+// _SheetField is retained for the Vehicle bottom sheet.
 class _SheetField extends StatelessWidget {
   final TextEditingController ctrl;
   final String label;
   final String hint;
-  final TextInputType keyboardType;
-  final int? maxLength;
   const _SheetField({
     required this.ctrl,
     required this.label,
     required this.hint,
-    this.keyboardType = TextInputType.text,
-    this.maxLength,
   });
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: ctrl,
-      keyboardType: keyboardType,
-      maxLength: maxLength,
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
-        counterText: '',
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Card input formatters (Task 7)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Small uppercase field label used inside the Add Card sheet.
+Widget _fieldLabel(String text) => Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Text(
+        text,
+        style: GoogleFonts.plusJakartaSans(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          color: AppColors.textMuted,
+          letterSpacing: 1.5,
+        ),
+      ),
+    );
+
+/// Groups card digits into blocks of 4 separated by spaces: XXXX XXXX XXXX XXXX
+class _CardNumberFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    final digits = newValue.text.replaceAll(' ', '');
+    if (digits.length > 16) return oldValue;
+    final buffer = StringBuffer();
+    for (int i = 0; i < digits.length; i++) {
+      if (i > 0 && i % 4 == 0) buffer.write(' ');
+      buffer.write(digits[i]);
+    }
+    final result = buffer.toString();
+    return TextEditingValue(
+      text: result,
+      selection: TextSelection.collapsed(offset: result.length),
+    );
+  }
+}
+
+/// Auto-inserts a slash after the 2nd digit to produce MM/YY.
+class _ExpiryFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    final digits = newValue.text.replaceAll('/', '');
+    if (digits.length > 4) return oldValue;
+    final buffer = StringBuffer();
+    for (int i = 0; i < digits.length; i++) {
+      if (i == 2) buffer.write('/');
+      buffer.write(digits[i]);
+    }
+    final result = buffer.toString();
+    return TextEditingValue(
+      text: result,
+      selection: TextSelection.collapsed(offset: result.length),
     );
   }
 }

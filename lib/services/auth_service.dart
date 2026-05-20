@@ -14,15 +14,25 @@ class AuthService {
     required String name,
     required String gender,
     required DateTime dob,
+    required String recoveryEmail, // must NOT be a .edu address
   }) async {
     try {
       final trimmedEmail = email.trim().toLowerCase();
-      final isValidUniEmail = trimmedEmail.endsWith('.edu.pk') || trimmedEmail.endsWith('.edu');
+      final isValidUniEmail =
+          trimmedEmail.endsWith('.edu.pk') || trimmedEmail.endsWith('.edu');
       if (!trimmedEmail.contains('@') || !isValidUniEmail) {
-        throw Exception('Only valid university emails (.edu.pk or .edu) are allowed.');
+        throw Exception(
+            'Only valid university emails (.edu.pk or .edu) are allowed.');
       }
-      
-      UserCredential credential = await _auth.createUserWithEmailAndPassword(
+
+      final trimmedRecovery = recoveryEmail.trim().toLowerCase();
+      if (trimmedRecovery == trimmedEmail) {
+        throw Exception(
+            'Recovery email must be different from your university email.');
+      }
+
+      UserCredential credential =
+          await _auth.createUserWithEmailAndPassword(
         email: email.trim(),
         password: password,
       );
@@ -34,6 +44,7 @@ class AuthService {
           name: name.trim(),
           gender: gender,
           dob: dob,
+          recoveryEmail: recoveryEmail.trim(),
         );
       }
       return credential;

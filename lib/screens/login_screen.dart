@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_theme.dart';
 import '../widgets/unidrive_logo.dart';
 import '../services/auth_service.dart';
@@ -35,86 +34,36 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _showForgotPassword() async {
-    final emailCtrl = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor:
-            Theme.of(context).brightness == Brightness.dark
-                ? AppColors.darkCard
-                : Colors.white,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(
-          'Reset Password',
-          style: GoogleFonts.plusJakartaSans(
-              fontWeight: FontWeight.w800, fontSize: 18),
-        ),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            controller: emailCtrl,
-            keyboardType: TextInputType.emailAddress,
-            decoration: InputDecoration(
-              hintText: 'name@university.edu.pk',
-              prefixIcon:
-                  const Icon(Icons.alternate_email_rounded, size: 20),
+    // ── Recovery Email Notice ──────────────────────────────────────────────
+    // UniDrive uses a separate "Recovery Email" field (personal .com address)
+    // collected at registration, because university .edu.pk addresses block
+    // external mail. The actual reset will be triggered by a Cloud Function
+    // (sendRecoveryEmail) that reads recoveryEmail from Firestore and sends
+    // a reset link. That function is currently under construction.
+    // ───────────────────────────────────────────────────────────────────────
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.construction_rounded,
+                color: Colors.white, size: 18),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Custom recovery email system is under construction.',
+                style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600, fontSize: 13),
+              ),
             ),
-            validator: (v) {
-              if (v == null || v.trim().isEmpty) {
-                return 'Please enter your email';
-              }
-              return null;
-            },
-          ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text('Cancel',
-                style: GoogleFonts.plusJakartaSans(
-                    color: AppColors.textMuted,
-                    fontWeight: FontWeight.w600)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (!formKey.currentState!.validate()) return;
-              Navigator.pop(ctx);
-              try {
-                await FirebaseAuth.instance
-                    .sendPasswordResetEmail(
-                        email: emailCtrl.text.trim());
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                        'Password reset email sent! Check your inbox.',
-                        style: GoogleFonts.plusJakartaSans(
-                            fontWeight: FontWeight.w600)),
-                    backgroundColor: AppColors.success,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Error: ${e.toString()}',
-                        style: GoogleFonts.plusJakartaSans(
-                            fontWeight: FontWeight.w600)),
-                    backgroundColor: AppColors.maroon,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              }
-            },
-            child: Text('Send Reset Link',
-                style: GoogleFonts.plusJakartaSans(
-                    fontWeight: FontWeight.w700)),
-          ),
-        ],
+        backgroundColor: AppColors.navy,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14)),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 4),
       ),
     );
   }

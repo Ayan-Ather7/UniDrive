@@ -5,7 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
+import '../services/auth_service.dart';
+import '../services/database_service.dart';
 import 'map_picker_screen.dart';
 
 // ── Ride type model ──────────────────────────────────────────────────────────
@@ -172,59 +175,146 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
 
               const SizedBox(height: 20),
 
-              // ── C. Pink Ride toggle (unchanged) ───────────────────────
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: _pinkRide
-                      ? AppColors.pink.withValues(alpha: 0.1)
-                      : fieldFill,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: _pinkRide
-                        ? AppColors.pink
-                        : Colors.transparent,
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 40, height: 40,
-                      decoration: BoxDecoration(
-                        color: _pinkRide
-                            ? AppColors.pink.withValues(alpha: 0.2)
-                            : isDark ? AppColors.darkSurface : Colors.white,
-                        shape: BoxShape.circle,
-                        boxShadow: _pinkRide
-                            ? [BoxShadow(color: AppColors.pink.withValues(alpha: 0.2), blurRadius: 10)]
-                            : null,
+              // ── C. Pink Ride toggle (gender-gated) ───────────────────
+              StreamBuilder<DocumentSnapshot>(
+                stream: AuthService().currentUid != null
+                    ? DatabaseService().streamUserData(AuthService().currentUid!)
+                    : null,
+                builder: (context, userSnap) {
+                  // Default to allowing access until Firestore responds.
+                  // Lock only when we have a confirmed non-Female gender.
+                  bool isFemale = true;
+                  if (userSnap.hasData && userSnap.data!.exists) {
+                    final data =
+                        userSnap.data!.data() as Map<String, dynamic>?;
+                    final gender =
+                        (data?['gender'] as String? ?? '').toLowerCase();
+                    isFemale = gender == 'female';
+                  }
+
+                  return GestureDetector(
+                    // Intercept taps on the whole row when disabled
+                    onTap: isFemale
+                        ? null
+                        : () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'The Pink Ride feature is restricted to '
+                                  'female users for safety and comfort.',
+                                  style: GoogleFonts.plusJakartaSans(
+                                      fontWeight: FontWeight.w600),
+                                ),
+                                backgroundColor: AppColors.pink,
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14)),
+                                margin: const EdgeInsets.all(16),
+                                duration: const Duration(seconds: 3),
+                              ),
+                            );
+                          },
+                    child: Opacity(
+                      opacity: isFemale ? 1.0 : 0.45,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: _pinkRide
+                              ? AppColors.pink.withValues(alpha: 0.1)
+                              : fieldFill,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: _pinkRide
+                                ? AppColors.pink
+                                : Colors.transparent,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Stack(
+                              children: [
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: _pinkRide
+                                        ? AppColors.pink.withValues(alpha: 0.2)
+                                        : isDark
+                                            ? AppColors.darkSurface
+                                            : Colors.white,
+                                    shape: BoxShape.circle,
+                                    boxShadow: _pinkRide
+                                        ? [
+                                            BoxShadow(
+                                                color: AppColors.pink
+                                                    .withValues(alpha: 0.2),
+                                                blurRadius: 10)
+                                          ]
+                                        : null,
+                                  ),
+                                  child: Icon(Icons.female_rounded,
+                                      color: _pinkRide
+                                          ? AppColors.pink
+                                          : AppColors.textMuted,
+                                      size: 22),
+                                ),
+                                // Lock badge for non-female users
+                                if (!isFemale)
+                                  Positioned(
+                                    right: 0,
+                                    bottom: 0,
+                                    child: Container(
+                                      width: 15,
+                                      height: 15,
+                                      decoration: const BoxDecoration(
+                                        color: AppColors.textMuted,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.lock_rounded,
+                                          size: 9, color: Colors.white),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Pink Ride',
+                                      style: GoogleFonts.plusJakartaSans(
+                                          color: textColor,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 14)),
+                                  Text(
+                                    isFemale
+                                        ? 'Verified Female Drivers Only'
+                                        : 'Available for female users only',
+                                    style: GoogleFonts.plusJakartaSans(
+                                        color: AppColors.textMuted,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // Switch is fully non-interactive for non-female
+                            Switch(
+                              value: _pinkRide && isFemale,
+                              onChanged: isFemale
+                                  ? (v) => setState(() => _pinkRide = v)
+                                  : null,
+                              activeThumbColor: Colors.white,
+                              activeTrackColor: AppColors.pink,
+                              inactiveTrackColor: AppColors.darkBorder,
+                            ),
+                          ],
+                        ),
                       ),
-                      child: Icon(Icons.female_rounded,
-                          color: _pinkRide ? AppColors.pink : AppColors.textMuted, size: 22),
                     ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Pink Ride',
-                              style: GoogleFonts.plusJakartaSans(
-                                  color: textColor, fontWeight: FontWeight.w800, fontSize: 14)),
-                          Text('Verified Female Drivers Only',
-                              style: GoogleFonts.plusJakartaSans(
-                                  color: AppColors.textMuted, fontSize: 11, fontWeight: FontWeight.w600)),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: _pinkRide,
-                      onChanged: (v) => setState(() => _pinkRide = v),
-                      activeThumbColor: Colors.white,
-                      activeTrackColor: AppColors.pink,
-                      inactiveTrackColor: AppColors.darkBorder,
-                    ),
-                  ],
-                ),
+                  );
+                },
               ).animate().fadeIn(delay: 240.ms).slideY(begin: 0.1),
 
               const SizedBox(height: 20),
